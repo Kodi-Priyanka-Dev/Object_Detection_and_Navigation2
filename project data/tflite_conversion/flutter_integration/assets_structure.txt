@@ -1,0 +1,16 @@
+
+Flutter Project Structure for TFLite Assets:
+
+your_app/
+├── assets/
+│   ├── models/
+│   │   └── best.tflite          ← Copy your converted model here
+│   ├── images/
+│   └── sounds/
+├── lib/
+│   ├── services/
+│   │   └── tflite_detection_service.dart
+│   ├── screens/
+│   │   └── home_screen.dart
+│   └── main.dart
+└── pubspec.yaml

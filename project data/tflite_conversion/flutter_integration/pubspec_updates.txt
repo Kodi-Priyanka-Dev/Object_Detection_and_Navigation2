@@ -1,0 +1,14 @@
+
+# Add these dependencies to your pubspec.yaml:
+
+dependencies:
+  flutter:
+    sdk: flutter
+  tflite_flutter: ^0.10.0
+  camera: ^0.10.5
+  image: ^4.0.0
+  permission_handler: ^11.4.0
+  
+  # Audio for voice navigation
+  audioplayers: ^4.1.0
+  text_to_speech: ^0.2.3

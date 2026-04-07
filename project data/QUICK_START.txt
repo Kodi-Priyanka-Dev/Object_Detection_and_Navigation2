@@ -1,0 +1,149 @@
+QUICK START - RUN DETECTION TESTS
+═════════════════════════════════════════════════════════════════════════════
+
+Your door detection system is now ready to test! Here are 3 ways to test it:
+
+
+METHOD 1: LOCAL DETECTION (Fastest - No Backend Needed)
+─────────────────────────────────────────────────────────────────────────────
+
+What it does: Shows real-time door detection with arrows using your webcam.
+
+Command:
+    cd "c:\Users\Priyanka\Documents\project data"
+    .venv\Scripts\Activate.ps1
+    python door_detection_visualization.py
+
+Press 'q' to quit.
+
+What you'll see:
+  ✓ Live camera feed
+  ✓ Green boxes around detected doors
+  ✓ Red arrows pointing to doors
+  ✓ Distance estimation in centimeters
+  ✓ Direction labels: "TURN LEFT" / "TURN RIGHT" / "MOVE FORWARD"
+  ✓ FPS counter and detection stats
+
+
+METHOD 2: BACKEND SERVICE TEST (Test Server)
+─────────────────────────────────────────────────────────────────────────────
+
+What it does: Tests the Flask backend by sending real frames and checking
+             response latency, accuracy, and JSON format.
+
+Step 1: Start the backend service
+    cd "c:\Users\Priyanka\Documents\project data\Navigation App"
+    .venv\Scripts\Activate.ps1
+    python backend_service.py
+    
+    Expected output: "Flask app running on 0.0.0.0:5000"
+
+Step 2: In NEW terminal, run the test
+    cd "c:\Users\Priyanka\Documents\project data"
+    .venv\Scripts\Activate.ps1
+    python test_backend_detection.py
+
+Press 'q' to quit.
+
+What you'll see:
+  ✓ Backend latency in milliseconds
+  ✓ Detection results with bounding boxes
+  ✓ "Backend Latency: XXms" at top
+  ✓ Connection status
+
+
+METHOD 3: MOBILE APP TEST (Full System)
+─────────────────────────────────────────────────────────────────────────────
+
+What it does: Tests the complete system on your Vivo device with camera,
+             sensor navigation, and voice guidance.
+
+Step 1: Ensure backend is running (from Method 2, Step 1)
+    Backend must be running on port 5000
+
+Step 2: Deploy app to device
+    cd "c:\Users\Priyanka\Documents\project data\Navigation App"
+    flutter clean
+    flutter pub get
+    flutter run
+
+What you'll see on device:
+  ✓ Live camera feed
+  ✓ Door detection boxes and arrows
+  ✓ Compass HUD at bottom
+  ✓ Voice commands: "Turn left", "Turn right", "Go straight"
+  ✓ Detection stats
+
+
+WHICH METHOD TO USE?
+════════════════════════════════════════════════════════════════════════════
+
+If you want to...
+├─ Test the MODEL quickly                    → Method 1
+├─ Test the BACKEND SERVER response          → Method 2
+├─ Test the COMPLETE MOBILE APP               → Method 3
+└─ Debug a specific issue                     → Method 1 (fastest feedback)
+
+
+TROUBLESHOOTING
+════════════════════════════════════════════════════════════════════════════
+
+"Module not found" error
+  → Run: pip install ultralytics opencv-python requests uvicorn
+
+"Camera not found"
+  → Check your webcam is connected
+  → Try different camera index in code (0, 1, 2...)
+
+"Backend connection refused"
+  → Start backend first (Method 2, Step 1)
+  → Check if already running: netstat -ano | findstr 5000
+
+"Model not found"
+  → Check best_model/best.pt exists
+  → If not, run: python train_merged.py
+
+"Very slow FPS"
+  → Close other apps using GPU
+  → Method 1 is fastest way to test
+
+
+FILES CREATED FOR YOU
+════════════════════════════════════════════════════════════════════════════
+
+door_detection_visualization.py
+  ↳ Local detection test with camera feed and arrows
+
+test_backend_detection.py  
+  ↳ Backend service test with latency measurements
+
+DOOR_DETECTION_README.txt
+  ↳ Detailed documentation of visualization script
+
+INTEGRATION_GUIDE.txt
+  ↳ Complete integration guide with architecture overview
+
+QUICK_START.txt (this file)
+  ↳ Simple getting started instructions
+
+
+NEXT STEPS
+════════════════════════════════════════════════════════════════════════════
+
+1. ✅ Run Method 1: python door_detection_visualization.py
+   
+2. ✅ Run Method 2: Test the backend service
+   
+3. ✅ Run Method 3: Deploy to mobile and test
+   
+4. ✅ Adjust CONFIDENCE_THRESHOLD values if needed
+   
+5. ✅ You're done! System is ready to use
+
+
+═════════════════════════════════════════════════════════════════════════════
+                      HAPPY TESTING! 🚀
+═════════════════════════════════════════════════════════════════════════════
+
+For more details: See INTEGRATION_GUIDE.txt
+For bugs/issues: Check the comments in each Python script

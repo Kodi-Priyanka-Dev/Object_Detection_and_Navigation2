@@ -1,0 +1,279 @@
+📚 DOCUMENTATION INDEX
+═════════════════════════════════════════════════════════════════════════════
+
+Click on any file below to read detailed documentation:
+
+
+⭐ START HERE (For New Users)
+─────────────────────────────
+  1. QUICK_START.txt              (5 min read)
+     → Quick setup & 3 testing methods
+  
+  2. PROJECT_README.md            (15 min read)
+     → Complete project overview
+
+
+📖 DETAILED GUIDES
+────────────────────────────────
+  1. INTEGRATION_GUIDE.txt         (20 min read)
+     → Architecture, workflows, checklist
+  
+  2. DOOR_DETECTION_README.txt    (10 min read)
+     → Visualization script details
+  
+  3. Navigation App/QUICKSTART.md (5 min read)
+     → Mobile app getting started
+
+
+🔧 REFERENCE DOCS
+────────────────────────────────
+  1. Navigation App/FEATURES.md
+     → App features list
+  
+  2. Navigation App/SUMMARY.md
+     → System summary
+  
+  3. Navigation App/YOLO26N_SERVER_README.md
+     → Alternative server info
+
+
+🔨 TECHNICAL SCRIPTS
+────────────────────────────────
+  1. door_detection_visualization.py
+     → Local detection testing (no backend needed)
+     → USAGE: python door_detection_visualization.py
+  
+  2. test_backend_detection.py
+     → Test Flask backend response
+     → USAGE: python test_backend_detection.py
+  
+  3. train_merged.py
+     → Train YOLO on merged dataset
+     → USAGE: python train_merged.py
+
+
+📁 PROJECT STRUCTURE
+────────────────────────────────
+
+Root Files:
+  📄 PROJECT_README.md ........................ This complete overview
+  📄 QUICK_START.txt .......................... Quick start guide
+  📄 INTEGRATION_GUIDE.txt .................... Integration guide
+  📄 DOOR_DETECTION_README.txt ................ Detection script guide
+  📄 requirements.txt ......................... Python dependencies
+  🐍 train_merged.py .......................... Main training script
+  🐍 door_detection_visualization.py ......... Local detection tester
+  🐍 test_backend_detection.py ............... Backend tester
+
+Models & Data:
+  📦 best_model/best.pt ...................... Trained YOLO model (5.96 MB)
+  📊 dataset/ ................................ Training dataset (8,985 images)
+  📈 runs/ .................................... Training outputs & logs
+
+Flutter App:
+  📱 Navigation App/
+    ├─ 📄 QUICKSTART.md ....................... App quick start
+    ├─ 📄 FEATURES.md ......................... Feature list
+    ├─ 📄 SUMMARY.md .......................... System summary
+    ├─ 🐍 backend_service.py ................. Flask server ⭐ CRITICAL
+    ├─ 🐍 test_backend_detection.py .......... Backend test
+    ├─ lib/
+    │  ├─ main.dart ........................... App entry point
+    │  ├─ screens/
+    │  │  └─ home_screen.dart ................ Main UI ⭐ CRITICAL
+    │  ├─ services/
+    │  │  ├─ camera_service.dart ............ Camera handling
+    │  │  ├─ sensor_navigation_service.dart . Compass + sensors ⭐
+    │  │  ├─ door_voice_command_service.dart  Voice guidance ⭐
+    │  │  └─ voice_service.dart ............. TTS
+    │  └─ widgets/
+    │     ├─ navigation_arrow.dart .......... Door arrow ⭐
+    │     ├─ sensor_navigation_hud.dart ..... Compass HUD ⭐
+    │     └─ sensor_navigation_example.dart . Example
+    ├─ android/ ............................... Android config
+    └─ ios/ .................................... iOS config
+
+
+📚 READING GUIDE BY ROLE
+════════════════════════════════════════════════════════════════════════════
+
+For a NEW USER:
+  1. Read: QUICK_START.txt (5 min)
+  2. Read: PROJECT_README.md (15 min)
+  3. Try: python door_detection_visualization.py (3 min)
+  → You're ready to use the app!
+
+For a DEVELOPER:
+  1. Read: PROJECT_README.md
+  2. Read: INTEGRATION_GUIDE.txt
+  3. Read: Code comments in Navigation App/lib/screens/home_screen.dart
+  4. Read: Code comments in Navigation App/backend_service.py
+  → You understand the system
+
+For ML ENGINEERS:
+  1. Read: train_merged.py comments
+  2. Check: dataset/data.yaml
+  3. Review: runs/detect/detect1892/results.csv
+  4. Analyze: Model metrics (88.87% mAP)
+  → You can retrain or improve the model
+
+For SYSTEM ADMINS:
+  1. Read: INTEGRATION_GUIDE.txt (Architecture section)
+  2. Review: Navigation App/backend_service.py
+  3. Check: Network configuration section
+  4. Setup: Backend deployment
+  → You can deploy and maintain
+
+
+🎯 COMMON TASKS & LOCATIONS
+════════════════════════════════════════════════════════════════════════════
+
+Task                          Where to Look
+───────────────────────────────────────────────────────────────────────────
+Set up project                 → QUICK_START.txt
+Run local detection test       → QUICK_START.txt (Method 1)
+Test backend service           → QUICK_START.txt (Method 2)
+Deploy to mobile device        → QUICK_START.txt (Method 3)
+Understand architecture        → PROJECT_README.md (Section 2)
+Configure confidence levels    → Navigation App/backend_service.py
+Change arrow size              → Navigation App/lib/widgets/navigation_arrow.dart
+Modify compass UI              → Navigation App/lib/widgets/sensor_navigation_hud.dart
+Adjust voice settings          → Navigation App/lib/services/voice_service.dart
+Train new model                → train_merged.py
+Debug detection issues         → INTEGRATION_GUIDE.txt (Debugging section)
+API documentation              → PROJECT_README.md (Section 9)
+Troubleshooting                → PROJECT_README.md (Section 10)
+
+
+🔍 QUICK REFERENCE
+════════════════════════════════════════════════════════════════════════════
+
+IMPORTANT NUMBERS:
+  Model Accuracy ............... 88.87% mAP@0.5
+  Training Time ................ 85 minutes
+  Model Size ................... 5.96 MB
+  Dataset Size ................. 8,985 images
+  Backend Latency .............. 40-80ms
+  Total E2E Latency ............ 80-150ms
+  App FPS ...................... 20-30 FPS
+  Memory Usage ................. 200-400MB
+
+CRITICAL FILES:
+  ⭐ best_model/best.pt ..................... YOLO model
+  ⭐ Navigation App/backend_service.py .... Flask server
+  ⭐ Navigation App/lib/screens/home_screen.dart ... Main UI
+  ⭐ Navigation App/lib/services/sensor_navigation_service.dart
+  ⭐ Navigation App/lib/services/door_voice_command_service.dart
+
+KEY PORTS:
+  Backend API: http://10.26.67.141:5000
+  ADB Debug: 10.26.67.141:5555
+
+IMPORTANT THRESHOLDS:
+  Door confidence ............. 10%  (high sensitivity)
+  Human confidence ............ 50%  (avoid false positives)
+  Other confidence ............ 5%   (furniture awareness)
+  Distance threshold .......... 80px (too close to door)
+
+
+🚀 GETTING STARTED IN 5 MINUTES
+════════════════════════════════════════════════════════════════════════════
+
+1. Activate Python environment:
+   .venv\Scripts\Activate.ps1
+
+2. Test local detection:
+   python door_detection_visualization.py
+   Press 'q' to quit
+
+3. If successful → Model is working!
+
+4. Start backend:
+   cd "Navigation App"
+   python backend_service.py
+
+5. In new terminal, deploy to mobile:
+   flutter run
+
+Done! The system is running.
+
+
+📊 FILE SIZES REFERENCE
+════════════════════════════════════════════════════════════════════════════
+
+best_model/best.pt .............. 5.96 MB    (YOLO model)
+Navigation App/ ................. ~500 MB    (Flutter + build)
+dataset/ ........................ ~4 GB      (Training images)
+runs/ ........................... ~2 GB      (Training outputs)
+
+Total: ~6.5 GB
+
+
+✅ VERIFICATION CHECKLIST
+════════════════════════════════════════════════════════════════════════════
+
+Before running the system, verify:
+
+  ☐ Python 3.12+ installed
+  ☐ Virtual environment activated
+  ☐ best_model/best.pt exists (5.96 MB)
+  ☐ Flutter 3.x installed
+  ☐ Device has camera
+  ☐ WiFi network available
+  ☐ Backend IP known (10.26.67.141)
+  ☐ Port 5000 available
+  ☐ Sufficient disk space (10GB+)
+
+
+❓ COMMON QUESTIONS
+════════════════════════════════════════════════════════════════════════════
+
+Q: How do I test the detection locally?
+A: python door_detection_visualization.py
+   (See QUICK_START.txt Method 1)
+
+Q: How do I know if the backend is working?
+A: python test_backend_detection.py
+   (See QUICK_START.txt Method 2)
+
+Q: How do I deploy to my phone?
+A: flutter run
+   (See QUICK_START.txt Method 3)
+
+Q: What if the model isn't found?
+A: Run: python train_merged.py
+   (See PROJECT_README.md Troubleshooting)
+
+Q: How do I change detection accuracy?
+A: Edit Navigation App/backend_service.py
+   Modify CONFIDENCE_THRESHOLD values
+   (See Integration Guide)
+
+Q: What's the model accuracy?
+A: 88.87% mAP@0.5
+   (See PROJECT_README.md Performance)
+
+Q: How fast is it?
+A: 80-150ms end-to-end latency
+   20-30 FPS on mobile
+   (See PROJECT_README.md Performance)
+
+Q: How do I improve the model?
+A: Collect more training data and run train_merged.py
+   (See train_merged.py)
+
+
+🆘 NEED HELP?
+════════════════════════════════════════════════════════════════════════════
+
+1. Check QUICK_START.txt for common issues
+2. Review INTEGRATION_GUIDE.txt troubleshooting
+3. Check PROJECT_README.md Section 10
+4. Read code comments in key files
+5. Test with door_detection_visualization.py
+
+
+═════════════════════════════════════════════════════════════════════════════
+Last Updated: March 13, 2026
+Next Read: QUICK_START.txt (5 minutes)
+═════════════════════════════════════════════════════════════════════════════
