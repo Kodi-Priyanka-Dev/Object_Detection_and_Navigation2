@@ -18,6 +18,15 @@ venv/
 *.ipr
 *.iws
 .idea/
+.vscode/
+__pycache__/
+.md/
+.txt/
+android/
+ios/
+windows/
+linux/
+build/
 
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
