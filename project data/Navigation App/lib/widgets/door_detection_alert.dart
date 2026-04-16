@@ -54,19 +54,34 @@ class _DoorDetectionAlertState extends State<DoorDetectionAlert>
       return const SizedBox.shrink();
     }
 
+    // Prefer "human" over generic "person" so person isn't treated as highest priority.
+    otherDetections.sort((a, b) {
+      final aLower = a.className.toLowerCase();
+      final bLower = b.className.toLowerCase();
+
+      int priority(String lower) {
+        if (lower == 'human' || lower == 'humans') return 0;
+        if (lower == 'person') return 1;
+        return 2;
+      }
+
+      return priority(aLower).compareTo(priority(bLower));
+    });
+
     final detection = otherDetections.first;
     final nav = widget.detection.navigation;
+    final displayName = _getDisplayLabel(detection.className);
 
     // Determine color based on object type
     Color alertColor;
     IconData icon;
     switch (detection.className.toLowerCase()) {
       case 'human':
-        alertColor = Colors.purple;
+        alertColor = const Color(0xFF8EDCFF); // light cyan
         icon = Icons.person;
         break;
       case 'person':
-        alertColor = Colors.purple;
+        alertColor = const Color(0xFF8EDCFF); // light cyan
         icon = Icons.people;
         break;
       default:
@@ -83,13 +98,13 @@ class _DoorDetectionAlertState extends State<DoorDetectionAlert>
       child: SlideTransition(
         position: _slideAnimation,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.80),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: alertColor.withOpacity(0.5),
-              width: 1.2,
+              width: 0.9,
             ),
             boxShadow: [
               BoxShadow(
@@ -104,18 +119,18 @@ class _DoorDetectionAlertState extends State<DoorDetectionAlert>
             children: [
               // Icon
               Container(
-                padding: const EdgeInsets.all(3),
+                padding: const EdgeInsets.all(1.8),
                 decoration: BoxDecoration(
                   color: alertColor.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(5),
                 ),
                 child: Icon(
                   icon,
-                  size: 12,
+                  size: 10,
                   color: alertColor,
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
 
               // Content
               Expanded(
@@ -125,10 +140,10 @@ class _DoorDetectionAlertState extends State<DoorDetectionAlert>
                   children: [
                     // Title
                     Text(
-                      '${detection.className.toUpperCase()} · ${detection.distance.toStringAsFixed(1)}m',
+                      '${displayName.toUpperCase()} · ${detection.distance.toStringAsFixed(1)}m',
                       style: TextStyle(
                         color: alertColor,
-                        fontSize: 10,
+                        fontSize: 8,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.3,
                       ),
@@ -138,7 +153,7 @@ class _DoorDetectionAlertState extends State<DoorDetectionAlert>
                         nav.message ?? '',
                         style: const TextStyle(
                           color: Colors.white70,
-                          fontSize: 8,
+                          fontSize: 6.5,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -151,5 +166,11 @@ class _DoorDetectionAlertState extends State<DoorDetectionAlert>
         ),
       ),
     );
+  }
+
+  String _getDisplayLabel(String className) {
+    final lower = className.toLowerCase();
+    if (lower == 'dining table') return 'Table';
+    return className;
   }
 }

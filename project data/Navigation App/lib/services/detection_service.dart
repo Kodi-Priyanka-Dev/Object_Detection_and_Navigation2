@@ -9,7 +9,7 @@ import '../models/detection_model.dart';
 class DetectionService {
   // Backend URL - Update this to your computer's IP address
   static const String baseIP =
-      String.fromEnvironment('BACKEND_IP', defaultValue: '10.26.67.141');
+      String.fromEnvironment('BACKEND_IP', defaultValue: '10.26.68.112');
   static const int port = int.fromEnvironment('BACKEND_PORT', defaultValue: 5000);
   
   static String get baseUrl => 'http://$baseIP:$port';

@@ -141,19 +141,102 @@ OBJECT_WIDTHS = {
     "table": 1.2,
     "backpack": 0.35, "handbag": 0.3, "suitcase": 0.5, "bottle": 0.08,
 }
-FOCAL_LENGTH = 800
+FOCAL_LENGTH = float(os.getenv("NAV_FOCAL_LENGTH_PX", "800"))
+DOOR_FOCAL_LENGTH = float(os.getenv("NAV_DOOR_FOCAL_LENGTH_PX", "520"))
+DOOR_REAL_WIDTH_M = float(os.getenv("NAV_DOOR_WIDTH_M", "0.9"))
+DOOR_REAL_HEIGHT_M = float(os.getenv("NAV_DOOR_HEIGHT_M", "2.0"))
 
 
 def estimate_distance(class_name, pixel_width):
-    if pixel_width == 0:
+    """Pinhole model: distance = (real_object_width * focal_length) / pixel_width."""
+    if pixel_width <= 0:
         return 0
-    known_w = OBJECT_WIDTHS.get(class_name.lower(), 0.5)
-    return round((known_w * FOCAL_LENGTH) / pixel_width, 2)
+    known_w = OBJECT_WIDTHS.get((class_name or "").lower().strip(), 0.5)
+    return round((known_w * FOCAL_LENGTH) / float(pixel_width), 2)
+
+
+def estimate_door_distance(box_width, box_height):
+    """Width + height pinhole average; uses DOOR_FOCAL_LENGTH (see backend_service)."""
+    estimates = []
+    if box_width > 0:
+        estimates.append((DOOR_REAL_WIDTH_M * DOOR_FOCAL_LENGTH) / float(box_width))
+    if box_height > 0:
+        estimates.append((DOOR_REAL_HEIGHT_M * DOOR_FOCAL_LENGTH) / float(box_height))
+    if not estimates:
+        return 0.0
+    d = sum(estimates) / len(estimates)
+    d = max(0.3, min(d, 80.0))
+    return round(d, 2)
 
 
 # ─── Door classes (for popup) ──────────────────────────
 DOOR_CLASSES = {"door", "glass door", "wooden entrance"}
 HUMAN_CLASSES = {"human", "humans"}  # Only human classes, no generic person
+
+# Classes to never show/send to the frontend.
+# (Keep this list in sync with Flutter display expectations.)
+EXCLUDED_CLASSES = {
+    # Electronics (remove)
+    "microwave",
+    "oven",
+    "toaster",
+    "refrigerator",
+    "hair drier",
+    # Furniture (remove)
+    "toilet",
+    "sink",
+    # Unwanted general classes
+    "airplane",
+    "skateboard",
+    "cup",
+    # Vehicles (remove all)
+    "bicycle",
+    "car",
+    "motorcycle",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    # Animals / birds (remove all)
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "teddy bear",
+}
+
+def is_full_human_frame(box_width, box_height, x1, y1, x2, y2, frame_w, frame_h):
+    """
+    Heuristic to reduce false positives:
+    require a reasonably tall bbox and that the bbox spans most of the person body.
+    """
+    if box_width <= 0 or box_height <= 0 or frame_w <= 0 or frame_h <= 0:
+        return False
+
+    rel_h = box_height / frame_h
+    rel_w = box_width / frame_w
+    area_ratio = (box_width * box_height) / (frame_w * frame_h)
+    top_ratio = y1 / frame_h
+    bottom_ratio = y2 / frame_h
+
+    # "Full frame" expectations:
+    # - tall enough bbox
+    # - visible from top half to lower half
+    # - not too wide/narrow
+    return (
+        rel_h >= 0.28
+        and rel_w >= 0.05
+        and rel_w <= 0.45
+        and area_ratio >= 0.03
+        and top_ratio <= 0.55
+        and bottom_ratio >= 0.55
+    )
 
 
 @app.route('/health', methods=['GET'])
@@ -227,16 +310,47 @@ def detect_objects():
             cls_name = model.names[cls_id]
             confidence = float(box.conf[0])
 
-            # NORMALIZE: person/Person -> Human
-            if cls_name.lower() == "person":
-                cls_name = "Human"
-
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             box_width = x2 - x1
+            box_height = y2 - y1
             box_center_x = (x1 + x2) // 2
             box_center_y = (y1 + y2) // 2
 
-            distance_m = estimate_distance(cls_name, box_width)
+            # Normalize labels for consistency.
+            cls_lower = cls_name.lower().strip().replace('_', ' ')
+
+            # Rename dining table -> table (frontend expects 'table')
+            if cls_lower == "dining table":
+                cls_lower = "table"
+                cls_name = "table"
+
+            # Drop unwanted classes.
+            if cls_lower in EXCLUDED_CLASSES:
+                continue
+
+            # Only keep human detections when a "full body" is visible.
+            if cls_lower in {"human", "humans"}:
+                if confidence < 0.35 or not is_full_human_frame(
+                    box_width, box_height, x1, y1, x2, y2, w, h
+                ):
+                    continue
+                cls_name = "human"
+
+            elif cls_lower == "person":
+                # Don't treat "person" as highest priority:
+                # keep it only if full body is visible, and with stricter conf.
+                if confidence < 0.45 or not is_full_human_frame(
+                    box_width, box_height, x1, y1, x2, y2, w, h
+                ):
+                    continue
+                # Keep cls_name as "person" so we can prefer "human" later.
+                cls_name = "person"
+
+            cls_key = cls_name.lower().strip()
+            if cls_key in DOOR_CLASSES:
+                distance_m = estimate_door_distance(box_width, box_height)
+            else:
+                distance_m = estimate_distance(cls_name, box_width)
 
             detections.append({
                 "class": cls_name,
@@ -250,7 +364,7 @@ def detect_objects():
                 },
                 "distance": distance_m,
                 "width": box_width,
-                "height": y2 - y1,
+                "height": box_height,
             })
             
             # Log specific detections
@@ -289,8 +403,8 @@ def detect_objects():
 
             navigation["popup"] = {
                 "type": "door",
-                "message": f"🚪 {closest['class']} detected at {closest['distance']}m",
-                "question": "Do you want to go through this door?",
+                "message": f"Door is detected at {closest['distance']:.1f} meters. Do you want to open and go?",
+                "question": None,
                 "distance": closest["distance"],
                 "confidence": closest["confidence"],
                 "position": closest["position"],
@@ -298,11 +412,21 @@ def detect_objects():
                 "action_url": "/handle_door_response",
             }
 
-        # Human detection - ONLY when confidence >= 0.35 (strict to avoid false positives)
-        humans = [d for d in detections if d["class"].lower() in HUMAN_CLASSES and d["confidence"] >= 0.35]
-        if humans and not doors:
-            humans.sort(key=lambda x: x["distance"])
-            closest = humans[0]
+        # Human detection:
+        # - Prefer "human" over "person"
+        # - Only allow when a full human bbox frame is visible (handled in filtering above)
+        human_candidates = []
+        for d in detections:
+            cls_lower = d["class"].lower()
+            if cls_lower in HUMAN_CLASSES and d["confidence"] >= 0.35:
+                human_candidates.append((False, d))  # (is_person, detection)
+            elif cls_lower == "person" and d["confidence"] >= 0.45:
+                human_candidates.append((True, d))
+
+        if human_candidates and not doors:
+            # Do not treat "person" as highest priority.
+            human_candidates.sort(key=lambda t: (t[0], t[1]["distance"]))
+            closest = human_candidates[0][1]
             offset = closest["position"]["center_x"] - center_x
 
             if abs(offset) < 100:
@@ -328,7 +452,7 @@ def detect_objects():
                 }
 
         total_ms = (time.time() - request_start) * 1000
-        human_count = sum(1 for d in detections if d["class"].lower() in HUMAN_CLASSES)
+        human_count = sum(1 for d in detections if d["class"].lower() in HUMAN_CLASSES or d["class"].lower() == "person")
         door_count = sum(1 for d in detections if d["class"].lower() in DOOR_CLASSES)
         print(f"📤 Total detections: {len(detections)} | Doors: {door_count} | Humans: {human_count} | Time: {total_ms:.0f}ms\n")
 

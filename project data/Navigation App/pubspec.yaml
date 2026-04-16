@@ -52,6 +52,9 @@ dependencies:
   
   # Sensor fusion for compass, accelerometer, gyroscope
   sensors_plus: ^4.0.2
+
+  # Device compass heading stream (platform compass)
+  flutter_compass: ^0.8.1
   
   # TensorFlow Lite for on-device ML inference
   tflite_flutter: ^0.11.0

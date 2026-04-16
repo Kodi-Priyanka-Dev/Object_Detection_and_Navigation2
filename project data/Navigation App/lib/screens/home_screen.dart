@@ -16,6 +16,17 @@ import '../widgets/sensor_navigation_hud.dart';
 import '../widgets/door_detection_alert.dart';
 import 'debug_visualization_screen.dart';
 
+/// Tuning for door arrow: same-door tracking + EMA distance + jump limit.
+class DoorTrackingTuning {
+  static const int maxDoorMissingFrames = 10;
+  static const double doorEmaAlphaDist = 0.28;
+  static const double maxDistanceStepPerFrameM = 0.65;
+  static const double doorEmaAlphaPos = 0.35;
+  static const double trackMatchGateNorm = 0.18;
+  static const double fastAlphaOnLargeAreaChange = 0.45;
+  static const double areaChangeTrigger = 0.22;
+}
+
 class HomeScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
 
@@ -30,10 +41,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final DetectionService _detectionService = DetectionService();
   final VoiceService _voiceService = VoiceService();
   late DoorVoiceCommandService _doorVoiceCmd;
-  late SensorNavigationService _sensorNav;
   
   bool _isProcessing = false;
-  double? _targetHeading; // For sensor-based navigation
   bool _isBackendHealthy = false;
   String _currentModel = 'custom'; // Track current model
   bool _isSwitchingModel = false; // Prevent multiple concurrent switches
@@ -44,6 +53,78 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isDoorDialogOpen = false;
   String? _shownPopupDoorKey = null; // Track if popup already shown for this door (NO LOOPING)
 
+  // Door tracker: same door across frames; smoothed distance/position for arrow UI.
+  Detection? _trackedDoorDetection;
+  double? _smoothedDoorDistanceM;
+  double? _smoothedDoorXNorm;
+  double? _smoothedDoorYNorm;
+  double? _smoothedDoorAreaNorm;
+  int _doorMissingFrames = 0;
+
+  // Event-based sensor voice: heading/tilt change + cooldown (reduces repetition).
+  DateTime? _lastSensorGuidanceVoiceAt;
+  double? _lastSensorVoiceHeading;
+  double? _lastSensorVoiceTilt;
+  NavDirection? _lastSensorVoiceDir;
+
+  static const int _maxDoorMissingFrames = DoorTrackingTuning.maxDoorMissingFrames;
+  static const double _doorEmaAlphaDist = DoorTrackingTuning.doorEmaAlphaDist;
+  static const double _doorEmaAlphaPos = DoorTrackingTuning.doorEmaAlphaPos;
+  static const double _maxDistanceStepPerFrameM = DoorTrackingTuning.maxDistanceStepPerFrameM;
+  static const double _trackMatchGateNorm = DoorTrackingTuning.trackMatchGateNorm;
+  static const double _fastAlphaOnLargeAreaChange = DoorTrackingTuning.fastAlphaOnLargeAreaChange;
+  static const double _areaChangeTrigger = DoorTrackingTuning.areaChangeTrigger;
+
+  /// Pick the door that best continues the current track (spatial + area), else nearest.
+  Detection _selectTrackedDoorCandidate(
+    List<Detection> doorCandidates,
+    double frameW,
+    double frameH,
+  ) {
+    if (_smoothedDoorXNorm == null ||
+        _smoothedDoorYNorm == null ||
+        _smoothedDoorAreaNorm == null) {
+      doorCandidates.sort((a, b) => a.distance.compareTo(b.distance));
+      return doorCandidates.first;
+    }
+
+    Detection best = doorCandidates.first;
+    double bestScore = double.infinity;
+
+    for (final d in doorCandidates) {
+      final xNorm = (d.position.centerX / frameW).clamp(0.0, 1.0);
+      final yNorm = (d.position.centerY / frameH).clamp(0.0, 1.0);
+      final areaNorm =
+          ((d.width.toDouble() * d.height.toDouble()) / (frameW * frameH))
+              .clamp(0.0, 1.0);
+
+      final dx = xNorm - _smoothedDoorXNorm!;
+      final dy = yNorm - _smoothedDoorYNorm!;
+      final posDelta = sqrt(dx * dx + dy * dy);
+      final areaDelta = (areaNorm - _smoothedDoorAreaNorm!).abs();
+
+      final score =
+          (posDelta * 2.2) + (areaDelta * 0.7) - (d.confidence * 0.15);
+      if (score < bestScore) {
+        bestScore = score;
+        best = d;
+      }
+    }
+
+    if (bestScore > _trackMatchGateNorm) {
+      doorCandidates.sort((a, b) => a.distance.compareTo(b.distance));
+      return doorCandidates.first;
+    }
+
+    return best;
+  }
+
+  double _circularDiffDegrees(double a, double b) {
+    var d = (a - b).abs() % 360.0;
+    if (d > 180.0) d = 360.0 - d;
+    return d;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -53,10 +134,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     
     // Initialize door voice command service
     _doorVoiceCmd = DoorVoiceCommandService(_voiceService);
-    
-    // Initialize sensor navigation
-    _sensorNav = SensorNavigationService();
-    _sensorNav.start();
   }
 
   @override
@@ -90,13 +167,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _doorVoiceCmd.clearAllHistory();
     } catch (e) {
       print('Error clearing door voice history: $e');
-    }
-    
-    // Stop sensor navigation
-    try {
-      _sensorNav.stop();
-    } catch (e) {
-      print('Error stopping sensor navigation: $e');
     }
     
     super.dispose();
@@ -292,32 +362,78 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         
         setState(() {
           _latestDetection = response;
-          
-          // Calculate target heading to door for sensor navigation
-          final doorDetection = response.detections
-              .where((d) => d.className.toLowerCase() == 'door')
-              .firstOrNull;
-          
-          if (doorDetection != null && response.frameSize.width > 0 && response.frameSize.height > 0) {
-            // Door is at frame center, camera is pointed at it
-            // Heading to door is current device heading (pointing straight)
-            // Set target heading for sensor navigation
-            double frameCenterX = response.frameSize.width / 2;
-            double doorX = doorDetection.position.centerX;
-            double doorOffsetX = doorX - frameCenterX;
-            
-            // Calculate heading adjustment based on door position in frame
-            // If door is right of center, target is to the right (add degrees)
-            // If door is left of center, target is to the left (subtract degrees)
-            double headingAdjustment = (doorOffsetX / (response.frameSize.width / 2)) * 30; // ±30°
-            _targetHeading = (90 + headingAdjustment) % 360; // Assume camera faces ~90° (East)
-            
-            print('🧭 Target heading to door: ${_targetHeading?.toStringAsFixed(1)}°');
-            // Set target in sensor navigation
-            _sensorNav.setTargetHeading(_targetHeading!);
+
+          // Door tracker: same-door association + jump-limited EMA on distance;
+          // EMA on screen position so arrow and distance stay aligned.
+          final frameW = response.frameSize.width.toDouble();
+          final frameH = response.frameSize.height.toDouble();
+          final doorCandidates = response.detections
+              .where((d) => d.className.toLowerCase().contains('door'))
+              .toList();
+
+          if (doorCandidates.isNotEmpty && frameW > 0 && frameH > 0) {
+            final door = _selectTrackedDoorCandidate(doorCandidates, frameW, frameH);
+
+            _trackedDoorDetection = door;
+            _doorMissingFrames = 0;
+
+            final rawDist = door.distance;
+            final doorAreaNorm =
+                ((door.width.toDouble() * door.height.toDouble()) / (frameW * frameH))
+                    .clamp(0.0, 1.0);
+
+            if (_smoothedDoorDistanceM == null) {
+              _smoothedDoorDistanceM = rawDist;
+            } else {
+              final prev = _smoothedDoorDistanceM!;
+              final areaDelta = _smoothedDoorAreaNorm == null
+                  ? 0.0
+                  : (doorAreaNorm - _smoothedDoorAreaNorm!).abs();
+
+              final adaptiveAlpha = areaDelta > _areaChangeTrigger
+                  ? _fastAlphaOnLargeAreaChange
+                  : _doorEmaAlphaDist;
+              final adaptiveStep = areaDelta > _areaChangeTrigger
+                  ? _maxDistanceStepPerFrameM * 1.8
+                  : _maxDistanceStepPerFrameM;
+
+              final clampedRaw = rawDist.clamp(
+                prev - adaptiveStep,
+                prev + adaptiveStep,
+              );
+              _smoothedDoorDistanceM =
+                  adaptiveAlpha * clampedRaw + (1 - adaptiveAlpha) * prev;
+            }
+
+            final xNorm = (door.position.centerX / frameW).clamp(0.0, 1.0);
+            final yNorm = (door.position.centerY / frameH).clamp(0.0, 1.0);
+
+            _smoothedDoorXNorm = _smoothedDoorXNorm == null
+                ? xNorm
+                : (_doorEmaAlphaPos * xNorm +
+                    (1 - _doorEmaAlphaPos) * _smoothedDoorXNorm!);
+            _smoothedDoorYNorm = _smoothedDoorYNorm == null
+                ? yNorm
+                : (_doorEmaAlphaPos * yNorm +
+                    (1 - _doorEmaAlphaPos) * _smoothedDoorYNorm!);
+            _smoothedDoorAreaNorm = _smoothedDoorAreaNorm == null
+                ? doorAreaNorm
+                : (0.25 * doorAreaNorm + 0.75 * _smoothedDoorAreaNorm!);
           } else {
-            _targetHeading = null;
+            _doorMissingFrames++;
+            if (_doorMissingFrames > _maxDoorMissingFrames) {
+              _trackedDoorDetection = null;
+              _smoothedDoorDistanceM = null;
+              _smoothedDoorXNorm = null;
+              _smoothedDoorYNorm = null;
+              _smoothedDoorAreaNorm = null;
+              // Reset popup + voice history so the next re-detected door
+              // triggers a fresh popup + voice message.
+              _shownPopupDoorKey = null;
+              _doorVoiceCmd.clearAllHistory();
+            }
           }
+
         });
 
         // Handle voice guidance - prioritize popups
@@ -348,14 +464,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               doorKey = '${gx}_${gy}';
             }
             
-            // Only show popup if we haven't shown it for this door yet
             if (doorKey != null && doorKey != _shownPopupDoorKey) {
               _isDoorDialogOpen = true;
-              _shownPopupDoorKey = doorKey; // Mark as shown
+              _shownPopupDoorKey = doorKey;
+
+              final double doorDistanceForUi = _smoothedDoorDistanceM ??
+                  doorDetection?.distance ??
+                  popup.distance;
+
+              final doorVoiceMessage =
+                  'Door is detected at ${doorDistanceForUi.toStringAsFixed(1)} meters. Do you want to open and go?';
+
+              // Fire-and-forget so the popup appears immediately.
+              // Use isPopup=true to bypass cooldown and allow interruption.
+              _voiceService.speak(
+                doorVoiceMessage,
+                'door_popup_$doorKey',
+                cooldownSeconds: 0,
+                isPopup: true,
+              );
               
               final bool? userChoice = await DoorPopupDialog.showDoorPopup(
                 context,
-                popup.distance,
+                doorDistanceForUi,
               );
 
               final doorClass = doorDetection?.className ?? 'Door';
@@ -363,90 +494,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               await _detectionService.handleDoorResponse(
                 userResponse: userChoice == true ? 'yes' : 'no',
                 doorClass: doorClass,
-                doorDistance: popup.distance,
+                doorDistance: doorDistanceForUi,
               );
               _isDoorDialogOpen = false;
             }
           }
 
-          // Show visual alert for human detection
-          if (popup.type.toLowerCase() == 'human') {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Icon(Icons.warning_amber, color: Colors.white, size: 24),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Human Detected!',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${popup.distance.toStringAsFixed(1)}m away - Deviate',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 3),
-                behavior: SnackBarBehavior.floating,
-                margin: const EdgeInsets.all(16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
+          print('🔊 POPUP (NO LOOP): ${popup.type} at ${popup.distance}m');
+          // Door voice is already spoken when the dialog is shown above.
+          if (popup.type.toLowerCase() != 'door') {
+            String voiceMessage = popup.message;
+            if (popup.type.toLowerCase() == 'human') {
+              voiceMessage = 'Human detected. Deviate and go straight.';
+            }
+
+            print('📢 Speaking: $voiceMessage');
+            await _voiceService.speak(
+              voiceMessage,
+              '${popup.type}_${popup.distance.toInt()}',
+              cooldownSeconds: 2,
             );
           }
-
-          print('🔊 POPUP (NO LOOP): ${popup.type} at ${popup.distance}m');
-          
-          // Customize voice messages for different detection types
-          String voiceMessage = popup.message;
-          
-          if (popup.type.toLowerCase() == 'door') {
-            voiceMessage = 'Door detected at ${popup.distance.toStringAsFixed(1)} metres. Do you want to open and go?';
-          } else if (popup.type.toLowerCase() == 'human') {
-            voiceMessage = 'Human detected. Deviate and go straight.';
-          }
-          
-          print('📢 Speaking: $voiceMessage');
-          
-          await _voiceService.speak(
-            voiceMessage,
-            '${popup.type}_${popup.distance.toInt()}',
-            cooldownSeconds: 2, // Faster repetition for popups
-          );
         } else if (response.navigation.direction != null && 
                    response.detections.isNotEmpty) {
           // ────────────────────────────────────────────────────────────────
           // DOOR VOICE COMMAND - Speak once per unique door + direction combo
           // ────────────────────────────────────────────────────────────────
-          
           // Find door detection if exists (do not use firstWhere+null; it crashes at runtime)
           Detection? doorDetection;
           for (final d in response.detections) {
-            if (d.className.toLowerCase() == 'door') {
+            if (d.className.toLowerCase().contains('door')) {
               doorDetection = d;
               break;
             }
           }
 
           if (doorDetection != null) {
-            // Speak door navigation once per unique door + direction
             await _doorVoiceCmd.speakOnce(
               response.navigation.direction!,
               doorDetection,
             );
             print('🚪 Door voice: ${response.navigation.direction}');
           } else {
-            // Not a door, but we have navigation - use standard voice
             if (response.navigation.message != null) {
               print('📣 Navigation guidance: ${response.navigation.message}');
               await _voiceService.speak(
@@ -457,7 +546,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             }
           }
         } else if (response.navigation.message != null) {
-          // Only speak navigation messages if no popup exists
           print('📣 Navigation guidance: ${response.navigation.message}');
           await _voiceService.speak(
             response.navigation.message!,
@@ -476,9 +564,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           print('🎯 Detected objects: $objectNames');
         }
       } else if (response == null) {
-        // Reset when no response from backend
         _doorVoiceCmd.clearAllHistory();
-        _shownPopupDoorKey = null; // Reset popup tracking
+        _shownPopupDoorKey = null;
+        if (mounted) {
+          setState(() {
+            _lastSensorGuidanceVoiceAt = null;
+            _lastSensorVoiceHeading = null;
+            _lastSensorVoiceTilt = null;
+            _lastSensorVoiceDir = null;
+          });
+        }
         print('❌ Detection service returned null');
       } else if (response.detections.isEmpty) {
         // Reset when no detections
@@ -527,9 +622,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
             
-            // Show arrow whenever ANY door is detected (not just popup)
-            if (_latestDetection != null && 
-                _latestDetection!.detections.any((d) => d.className.toLowerCase().contains('door')))
+            // Door direction arrow (tracked door + smoothed position/distance)
+            if (_trackedDoorDetection != null &&
+                _smoothedDoorDistanceM != null &&
+                _smoothedDoorXNorm != null &&
+                _smoothedDoorYNorm != null)
               _buildDoorArrowOverlay(),
             
             
@@ -539,21 +636,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 detection: _latestDetection!,
               ),
             
-            // Navigation Popup (resized - SMALLER)
-            if (_latestDetection?.navigation.popup != null &&
-                _latestDetection!.navigation.popup!.type.toLowerCase() != 'door')
-              Positioned(
-                top: 120,
-                left: 10,
-                right: 10,
-                child: Transform.scale(
-                  scale: 0.85,
-                  alignment: Alignment.topCenter,
-                  child: NavigationPopupWidget(
-                    popup: _latestDetection!.navigation.popup,
-                  ),
-                ),
-              ),
+            _buildHumanNavigationPopup(),
             
             // Status indicators (top)
             _buildStatusBar(),
@@ -561,22 +644,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             // Control Panel (bottom)
             _buildControlPanel(),
             
-            // Sensor Navigation HUD with compass and direction guidance (RESIZED - SMALLER)
-            if (_targetHeading != null)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Transform.scale(
-                  scale: 0.75,
-                  alignment: Alignment.bottomCenter,
-                  child: SensorNavigationHUD(
-                    targetHeading: _targetHeading,
-                    onDirectionChanged: _onSensorDirectionChanged,
-                  ),
-                ),
+            // Sensor Navigation HUD with compass and direction guidance
+            Positioned(
+              left: 10,
+              right: 10,
+              bottom: _sensorPanelBottomOffset(context),
+              child: SensorNavigationHUD(
+                showGuidance: true,
+                onNavigationStateChanged: _onSensorNavigationStateChanged,
               ),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Human / obstacle navigation card (door uses modal dialog instead).
+  Widget _buildHumanNavigationPopup() {
+    final pop = _latestDetection?.navigation.popup;
+    if (pop == null || pop.type.toLowerCase() == 'door') {
+      return const SizedBox.shrink();
+    }
+    return Positioned(
+      top: 120,
+      left: 10,
+      right: 10,
+      child: Transform.scale(
+        scale: 0.82,
+        alignment: Alignment.topCenter,
+        child: NavigationPopupWidget(
+          popup: pop,
         ),
       ),
     );
@@ -584,41 +682,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Build door arrow overlay with distance
   Widget _buildDoorArrowOverlay() {
-    // Find door detection
-    Detection? doorDetection;
-    try {
-      doorDetection = _latestDetection!.detections.firstWhere(
-        (d) => d.className.toLowerCase().contains('door'),
-      );
-    } catch (e) {
+    if (_trackedDoorDetection == null ||
+        _smoothedDoorDistanceM == null ||
+        _smoothedDoorXNorm == null ||
+        _smoothedDoorYNorm == null) {
       return const SizedBox.shrink();
     }
 
-    if (doorDetection != null && _latestDetection != null) {
-      final screenWidth = MediaQuery.of(context).size.width;
-      final screenHeight = MediaQuery.of(context).size.height;
-      final frameWidth = _latestDetection!.frameSize.width.toDouble();
-      final frameHeight = _latestDetection!.frameSize.height.toDouble();
-      
-      if (frameWidth <= 0 || frameHeight <= 0) {
-        return const SizedBox.shrink();
-      }
-
-      final xPos = (doorDetection.position.centerX / frameWidth) * screenWidth;
-      final yPos = (doorDetection.position.centerY / frameHeight) * screenHeight;
-
-      if (!xPos.isFinite || !yPos.isFinite) {
-        return const SizedBox.shrink();
-      }
-
-      return DoorArrowOverlay(
-        position: Offset(xPos, yPos),
-        screenSize: Size(screenWidth, screenHeight),
-        distance: doorDetection.distance,
-      );
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    if (screenWidth <= 0 || screenHeight <= 0) {
+      return const SizedBox.shrink();
     }
 
-    return const SizedBox.shrink();
+    final xPos = _smoothedDoorXNorm! * screenWidth;
+    final yPos = _smoothedDoorYNorm! * screenHeight;
+    if (!xPos.isFinite || !yPos.isFinite) {
+      return const SizedBox.shrink();
+    }
+
+    return DoorArrowOverlay(
+      position: Offset(xPos, yPos),
+      screenSize: Size(screenWidth, screenHeight),
+      distance: _smoothedDoorDistanceM!,
+    );
   }
 
   /// Build navigation arrow positioned near door if detected
@@ -1060,18 +1147,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Handle sensor direction changes with voice feedback
-  void _onSensorDirectionChanged(NavDirection dir) {
-    String msg = switch (dir) {
+  double _sensorPanelBottomOffset(BuildContext context) {
+    final h = MediaQuery.of(context).size.height;
+
+    // Control panel is bottom:10 with ~70px height. Keep this panel
+    // directly above it with a clean gap and no overlap.
+    if (h < 700) return 92;
+    if (h < 800) return 98;
+    return 104;
+  }
+
+  /// Sensor TTS when heading/tilt changed meaningfully and cooldown elapsed.
+  void _onSensorNavigationStateChanged(NavigationState s) {
+    if (s.direction == NavDirection.none) return;
+
+    final now = DateTime.now();
+    const cooldown = Duration(seconds: 12);
+    final since = _lastSensorGuidanceVoiceAt == null
+        ? cooldown
+        : now.difference(_lastSensorGuidanceVoiceAt!);
+
+    final hDelta = _lastSensorVoiceHeading == null
+        ? 999.0
+        : _circularDiffDegrees(s.heading, _lastSensorVoiceHeading!);
+    final tDelta = _lastSensorVoiceTilt == null
+        ? 999.0
+        : (s.tiltAngle - _lastSensorVoiceTilt!).abs();
+    final significantMotion = hDelta >= 22.0 || tDelta >= 12.0;
+    final dirChanged = _lastSensorVoiceDir != s.direction;
+
+    if (dirChanged) {
+      if (since < cooldown && !significantMotion) return;
+    } else {
+      if (!significantMotion || since < cooldown) return;
+    }
+
+    final msg = switch (s.direction) {
       NavDirection.left => 'Turn left',
       NavDirection.right => 'Turn right',
       NavDirection.forward => 'Go straight',
       NavDirection.none => '',
     };
+    if (msg.isEmpty) return;
 
-    if (msg.isNotEmpty) {
-      _voiceService.speak(msg, 'sensor_${dir.name}', cooldownSeconds: 2);
-      print('🧭 Sensor voice: $msg (${dir.name})');
-    }
+    _voiceService.speak(msg, 'sensor_nav', cooldownSeconds: 0);
+    print('🧭 Sensor voice: $msg (${s.direction.name})');
+
+    _lastSensorVoiceHeading = s.heading;
+    _lastSensorVoiceTilt = s.tiltAngle;
+    _lastSensorVoiceDir = s.direction;
+    _lastSensorGuidanceVoiceAt = now;
   }
 }

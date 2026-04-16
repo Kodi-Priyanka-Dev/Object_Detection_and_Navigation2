@@ -130,9 +130,9 @@ class _NavigationPopupWidgetState extends State<NavigationPopupWidget>
         accentColor = Colors.cyan;
         break;
       case 'human':
-        backgroundColor = Colors.purple;
+        backgroundColor = const Color(0xFF7ED8FF); // light blue
         iconData = Icons.people;
-        accentColor = Colors.cyanAccent;
+        accentColor = const Color(0xFFB3ECFF);
         break;
       default:
         backgroundColor = Colors.grey;
@@ -144,20 +144,20 @@ class _NavigationPopupWidgetState extends State<NavigationPopupWidget>
       scale: _scaleAnimation,
       child: Center(
         child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 20),
-          padding: const EdgeInsets.all(16),
+          margin: const EdgeInsets.symmetric(horizontal: 28),
+          padding: const EdgeInsets.all(11),
           decoration: BoxDecoration(
             color: backgroundColor.withOpacity(0.95),
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: accentColor,
-              width: 3,
+              width: 2,
             ),
             boxShadow: [
               BoxShadow(
                 color: accentColor.withOpacity(0.8),
-                blurRadius: 25,
-                spreadRadius: 5,
+                blurRadius: 20,
+                spreadRadius: 3,
               ),
               BoxShadow(
                 color: Colors.black.withOpacity(0.5),
@@ -171,7 +171,7 @@ class _NavigationPopupWidgetState extends State<NavigationPopupWidget>
             children: [
               // Icon with pulse effect
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
                   shape: BoxShape.circle,
@@ -182,23 +182,23 @@ class _NavigationPopupWidgetState extends State<NavigationPopupWidget>
                 ),
                 child: Icon(
                   iconData,
-                  size: 35,
+                  size: 26,
                   color: Colors.white,
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
 
               // Type (DOOR/HUMAN)
               Text(
                 widget.popup!.type.toUpperCase(),
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 13,
+                  fontSize: 11,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 1.5,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 5),
 
               // Message
               Text(
@@ -206,11 +206,11 @@ class _NavigationPopupWidgetState extends State<NavigationPopupWidget>
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 10,
+                  fontSize: 8,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 5),
 
               // Question (for door popups)
               if (widget.popup!.question != null) ...[
@@ -219,23 +219,23 @@ class _NavigationPopupWidgetState extends State<NavigationPopupWidget>
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white70,
-                    fontSize: 9,
+                    fontSize: 7,
                     fontWeight: FontWeight.w500,
                     fontStyle: FontStyle.italic,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 5),
               ],
 
               // Distance with emphasis
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: Colors.white70,
-                    width: 1.5,
+                    width: 1,
                   ),
                 ),
                 child: Row(
@@ -244,14 +244,14 @@ class _NavigationPopupWidgetState extends State<NavigationPopupWidget>
                     const Icon(
                       Icons.straighten,
                       color: Colors.white,
-                      size: 12,
+                      size: 10,
                     ),
                     const SizedBox(width: 6),
                     Text(
                       'Distance: ${widget.popup!.distance.toStringAsFixed(1)}m',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 9,
+                        fontSize: 7,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -261,7 +261,7 @@ class _NavigationPopupWidgetState extends State<NavigationPopupWidget>
 
               // Yes/No buttons for door popups
               if (widget.popup!.type.toLowerCase() == 'door' && widget.popup!.options != null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [

@@ -45,6 +45,7 @@ class ObjectLabels extends StatelessWidget {
     // Choose color based on object class
     Color labelColor = _getColorForClass(detection.className);
     Color accentColor = labelColor.withOpacity(0.8);
+    final displayName = _getDisplayLabel(detection.className);
 
     return SizedBox(
       width: 120,
@@ -76,7 +77,7 @@ class ObjectLabels extends StatelessWidget {
             children: [
               // Object name - Primary info
               Text(
-                detection.className.toUpperCase(),
+                displayName.toUpperCase(),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 13,
@@ -141,10 +142,11 @@ class ObjectLabels extends StatelessWidget {
         return const Color(0xFF00BCD4); // Cyan
       case 'wooden entrance':
         return const Color(0xFFFF9800); // Orange
+      case 'dining table':
       case 'human':
       case 'humans':
       case 'person':
-        return const Color(0xFFFF5252); // Red
+        return const Color(0xFF7C4DFF); // Deep purple (not red)
       case 'table':
         return const Color(0xFF9C27B0); // Purple
       case 'sofa':
@@ -160,6 +162,12 @@ class ObjectLabels extends StatelessWidget {
       default:
         return const Color(0xFF757575); // Grey
     }
+  }
+
+  String _getDisplayLabel(String className) {
+    final lower = className.toLowerCase();
+    if (lower == 'dining table') return 'Table';
+    return className;
   }
 }
 

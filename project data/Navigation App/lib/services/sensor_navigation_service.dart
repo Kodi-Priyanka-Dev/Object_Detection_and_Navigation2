@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
 /// Navigation direction enum
@@ -30,6 +31,7 @@ class NavigationState {
 /// Subscribe to [stream] for real-time [NavigationState] updates.
 class SensorNavigationService {
   // ── Streams ────────────────────────────────────────────────────────────────
+  StreamSubscription? _compassSub;
   StreamSubscription? _magSub;
   StreamSubscription? _accelSub;
   StreamSubscription? _gyroSub;
@@ -38,6 +40,7 @@ class SensorNavigationService {
   Stream<NavigationState> get stream => _controller.stream;
 
   // ── Raw sensor values ──────────────────────────────────────────────────────
+  double? _compassHeading; // 0–360 from flutter_compass (preferred when available)
   double _magX = 0, _magY = 0, _magZ = 0;
   double _accelX = 0, _accelY = 0, _accelZ = 9.8;
   double _gyroZ = 0;
@@ -64,6 +67,7 @@ class SensorNavigationService {
 
   // ── Start / Stop ───────────────────────────────────────────────────────────
   void start() {
+    _compassSub = FlutterCompass.events?.listen(_onCompass);
     _magSub = magnetometerEventStream().listen(_onMag);
     _accelSub = accelerometerEventStream().listen(_onAccel);
     _gyroSub = gyroscopeEventStream().listen(_onGyro);
@@ -71,6 +75,7 @@ class SensorNavigationService {
   }
 
   void stop() {
+    _compassSub?.cancel();
     _magSub?.cancel();
     _accelSub?.cancel();
     _gyroSub?.cancel();
@@ -79,9 +84,19 @@ class SensorNavigationService {
   }
 
   // ── Sensor callbacks ───────────────────────────────────────────────────────
+  void _onCompass(CompassEvent e) {
+    final h = e.heading;
+    if (h == null || !h.isFinite) return;
+    _compassHeading = (h % 360 + 360) % 360;
+    _compute();
+  }
+
   void _onMag(MagnetometerEvent e) {
     _magX = e.x; _magY = e.y; _magZ = e.z;
-    _compute();
+    // Only compute from magnetometer if compass stream isn't available.
+    if (_compassHeading == null) {
+      _compute();
+    }
   }
 
   void _onAccel(AccelerometerEvent e) {
@@ -106,22 +121,27 @@ class SensorNavigationService {
 
   // ── Core fusion ────────────────────────────────────────────────────────────
   void _compute() {
-    // 1. Tilt-compensated heading from mag + accel
+    // 1) Use flutter_compass heading when available (already fused/tilt-compensated
+    // on many devices). Fallback to tilt-compensated heading from mag+accel.
     final double ax = _accelX, ay = _accelY, az = _accelZ;
     final double norm = math.sqrt(ax * ax + ay * ay + az * az);
     if (norm < 0.001) return;
 
-    final double roll  = math.atan2(ay, az);
-    final double pitch = math.atan2(-ax, math.sqrt(ay * ay + az * az));
+    double heading;
+    if (_compassHeading != null) {
+      heading = _compassHeading!;
+    } else {
+      final double roll = math.atan2(ay, az);
+      final double pitch = math.atan2(-ax, math.sqrt(ay * ay + az * az));
 
-    final double mx = _magX * math.cos(pitch) +
-        _magZ * math.sin(pitch);
-    final double my = _magX * math.sin(roll) * math.sin(pitch) +
-        _magY * math.cos(roll) -
-        _magZ * math.sin(roll) * math.cos(pitch);
+      final double mx = _magX * math.cos(pitch) + _magZ * math.sin(pitch);
+      final double my = _magX * math.sin(roll) * math.sin(pitch) +
+          _magY * math.cos(roll) -
+          _magZ * math.sin(roll) * math.cos(pitch);
 
-    double heading = math.atan2(-my, mx) * (180 / math.pi);
-    if (heading < 0) heading += 360;
+      heading = math.atan2(-my, mx) * (180 / math.pi);
+      if (heading < 0) heading += 360;
+    }
 
     // 2. Apply calibration offset AND gyroscope drift correction
     heading = (heading - _headingOffset + 360) % 360;

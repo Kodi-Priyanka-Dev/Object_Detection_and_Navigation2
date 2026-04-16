@@ -11,13 +11,17 @@ class SensorNavigationHUD extends StatefulWidget {
   /// Heading (0–360°) the user should walk toward. Null = compass-only mode.
   final double? targetHeading;
 
-  /// Called when direction changes so parent can trigger TTS.
-  final void Function(NavDirection direction)? onDirectionChanged;
+  /// When false, compass stays visible; turn arrow shows a standby state (no L/R/F).
+  final bool showGuidance;
+
+  /// Throttled sensor updates for event-based TTS (heading/tilt) in the parent.
+  final void Function(NavigationState state)? onNavigationStateChanged;
 
   const SensorNavigationHUD({
     Key? key,
     this.targetHeading,
-    this.onDirectionChanged,
+    this.showGuidance = true,
+    this.onNavigationStateChanged,
   }) : super(key: key);
 
   @override
@@ -38,6 +42,7 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
   NavigationState? _state;
   NavDirection _lastDirection = NavDirection.none;
   double _compassAngle = 0;
+  bool _autoTargetLocked = false; // Use initial heading as default target
 
   @override
   void initState() {
@@ -49,6 +54,10 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
     }
     _svc.start();
     _svc.stream.listen(_onState);
+
+    // Ensure the arrow UI is visible immediately (not scaled to 0
+    // before the first direction-change animation fires).
+    _arrowCtrl.value = 1.0;
   }
 
   void _initAnimations() {
@@ -77,17 +86,33 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
 
   void _onState(NavigationState s) {
     if (!mounted) return;
-    setState(() {
-      _state = s;
-      // Animate compass ring
-      _compassAngle = s.heading * math.pi / 180;
-    });
 
-    // Trigger arrow animation on direction change
-    if (s.direction != _lastDirection) {
+    // Auto-set target heading once when none is provided
+    if (!_autoTargetLocked && widget.targetHeading == null) {
+      _svc.setTargetHeading(s.heading);
+      _autoTargetLocked = true;
+    }
+
+    // Throttle UI updates to meaningful changes only
+    final prev = _state;
+    final bool shouldUpdate = prev == null ||
+        (s.heading - prev.heading).abs() > 0.5 ||
+        (s.tiltAngle - prev.tiltAngle).abs() > 1.5 ||
+        s.direction != prev.direction;
+
+    if (shouldUpdate) {
+      setState(() {
+        _state = s;
+        _compassAngle = s.heading * math.pi / 180;
+      });
+      widget.onNavigationStateChanged?.call(s);
+    }
+
+    if (widget.showGuidance && s.direction != _lastDirection) {
       _lastDirection = s.direction;
       _arrowCtrl.forward(from: 0);
-      widget.onDirectionChanged?.call(s.direction);
+    } else if (!widget.showGuidance) {
+      _lastDirection = s.direction;
     }
   }
 
@@ -116,27 +141,44 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
     if (s == null) return _buildLoading();
 
     return Container(
+      constraints: const BoxConstraints(minHeight: 86),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF0A0E1A),
-            const Color(0xFF0D1B2A),
-            const Color(0xFF0A0E1A),
-          ],
+        color: Colors.black.withOpacity(0.82),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.indigo.withOpacity(0.5),
+          width: 1.5,
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          _buildHeader(s),
-          const SizedBox(height: 4),
-          _buildCompassRing(s),
-          const SizedBox(height: 8),
-          _buildDirectionArrow(s),
-          const SizedBox(height: 6),
-          _buildInfoBar(s),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${s.heading.toStringAsFixed(1)}°  ${_cardinalLabel(s.heading)}',
+                  style: const TextStyle(
+                    color: Colors.cyanAccent,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Center(child: _buildCompassRing(s)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Center(
+              child: widget.showGuidance
+                  ? _buildDirectionArrow(s)
+                  : _buildGuidanceStandby(),
+            ),
+          ),
         ],
       ),
     );
@@ -145,10 +187,15 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
   // ── Loading state ──────────────────────────────────────────────────────────
   Widget _buildLoading() {
     return Container(
-      height: 60,
+      height: 86,
       alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: Color(0xFF0A0E1A),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.78),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.indigo.withOpacity(0.5),
+          width: 1.5,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -286,8 +333,8 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
   // ── Compass ring ───────────────────────────────────────────────────────────
   Widget _buildCompassRing(NavigationState s) {
     return SizedBox(
-      width: 140,
-      height: 140,
+      width: 82,
+      height: 82,
       child: AnimatedBuilder(
         animation: _pulseAnim,
         builder: (_, __) => CustomPaint(
@@ -305,6 +352,36 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
     );
   }
 
+  // ── Standby when no nearby obstacle (compass still active) ────────────────
+  Widget _buildGuidanceStandby() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white24, width: 1),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.explore_outlined, size: 22, color: Colors.blueGrey.shade300),
+          const SizedBox(height: 6),
+          Text(
+            'Guidance when obstacle is close',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.blueGrey.shade200,
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Direction arrow ────────────────────────────────────────────────────────
   Widget _buildDirectionArrow(NavigationState s) {
     final cfg = _arrowConfig(s.direction);
@@ -313,8 +390,7 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
       scale: _arrowAnim,
       child: Container(
         width: double.infinity,
-        margin: const EdgeInsets.symmetric(horizontal: 10),
-        padding: const EdgeInsets.symmetric(vertical: 9),
+        padding: const EdgeInsets.symmetric(vertical: 6),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
@@ -323,8 +399,8 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
               cfg.color.withOpacity(0.08),
             ],
           ),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cfg.color.withOpacity(0.4), width: 1.5),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: cfg.color.withOpacity(0.4), width: 1.2),
           boxShadow: [
             BoxShadow(
               color: cfg.color.withOpacity(0.2),
@@ -339,51 +415,38 @@ class _SensorNavigationHUDState extends State<SensorNavigationHUD>
             Stack(
               alignment: Alignment.center,
               children: [
-                // Glow ring
                 if (s.direction != NavDirection.none)
                   AnimatedBuilder(
                     animation: _pulseAnim,
                     builder: (_, __) => Container(
-                      width: 45 * _pulseAnim.value,
-                      height: 45 * _pulseAnim.value,
+                      width: 34 * _pulseAnim.value,
+                      height: 34 * _pulseAnim.value,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: cfg.color.withOpacity(0.2),
-                          width: 2,
+                          width: 1.5,
                         ),
                       ),
                     ),
                   ),
                 Icon(
                   cfg.icon,
-                  size: 36,
+                  size: 24,
                   color: cfg.color,
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               cfg.label,
               style: TextStyle(
                 color: cfg.color,
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 1.5,
               ),
             ),
-            if (s.direction != NavDirection.none && widget.targetHeading != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  s.debugLabel,
-                  style: TextStyle(
-                    color: cfg.color.withOpacity(0.5),
-                    fontSize: 8,
-                    letterSpacing: 1,
-                  ),
-                ),
-              ),
           ],
         ),
       ),
@@ -513,16 +576,16 @@ class _CompassPainter extends CustomPainter {
       Offset(cx, cy),
       outerR,
       Paint()
-        ..color = const Color(0xFF1A2744)
+        ..color = const Color(0xFF1A2744).withOpacity(0.10)
         ..style = PaintingStyle.fill,
     );
     canvas.drawCircle(
       Offset(cx, cy),
       outerR,
       Paint()
-        ..color = const Color(0xFF00D4FF).withOpacity(0.3)
+        ..color = const Color(0xFF00D4FF).withOpacity(0.18)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
+        ..strokeWidth = 1.2,
     );
 
     // ── Tick marks ──────────────────────────────────────────────────────────

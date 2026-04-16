@@ -43,11 +43,6 @@ ELECTRONICS_CLASSES = [
     'remote',                           # remote control
     'keyboard',                         # computer keyboard
     'cell phone',                       # mobile phone
-    'microwave',                        # microwave oven
-    'oven',                             # kitchen oven
-    'toaster',                          # toaster
-    'refrigerator',                     # fridge
-    'hair drier',                       # hair dryer
 ]
 
 # === FURNITURE (from COCO) ===
@@ -56,8 +51,6 @@ FURNITURE_CLASSES = [
     'couch',                            # sofa / couch
     'bed',                              # bed
     'dining table',                     # table
-    'toilet',                           # toilet
-    'sink',                             # sink
 ]
 
 # All target classes combined (humans first for priority)
@@ -68,7 +61,7 @@ TARGET_CLASSES = (
     FURNITURE_CLASSES
 )
 
-# Total: 1 + 5 + 11 + 6 = 23 classes out of 80 COCO classes
+# Total: 1 + 5 + 6 + 4 = 16 classes out of 80 COCO classes
 
 # Color map per category (BGR format for OpenCV)
 CATEGORY_COLORS = {
@@ -102,6 +95,13 @@ def get_class_category(cls_name):
     elif cls_name in FURNITURE_CLASSES:
         return 'Furniture'
     return 'Other'
+
+
+def get_display_label(cls_name):
+    """Normalize class label for user-facing output/UI text."""
+    if cls_name == 'dining table':
+        return 'Table'
+    return cls_name
 
 
 # ============================================================================
@@ -149,7 +149,8 @@ def detect_objects_in_image(image_path, output_path='result.jpg', conf=0.5):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             color = get_class_color(cls_name)
             category = get_class_category(cls_name)
-            label = f"{cls_name} ({confidence:.2f})"
+            display_name = get_display_label(cls_name)
+            label = f"{display_name} ({confidence:.2f})"
 
             # Draw bounding box (thicker for humans)
             thickness = 3 if cls_name in HUMAN_CLASSES else 2
@@ -162,7 +163,7 @@ def detect_objects_in_image(image_path, output_path='result.jpg', conf=0.5):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
             entry = {
-                'class': cls_name,
+                'class': display_name,
                 'category': category,
                 'confidence': confidence,
                 'bbox': (x1, y1, x2, y2)
@@ -467,7 +468,7 @@ class ObjectAnalyzer:
                 for cls in found:
                     count = self.class_counts[cls]
                     avg = np.mean(self.confidence_scores[cls])
-                    print(f"    {cls:18} Count: {count:4}  Avg Conf: {avg:.3f}")
+                    print(f"    {get_display_label(cls):18} Count: {count:4}  Avg Conf: {avg:.3f}")
 
         print("\n" + "-"*55)
         print(f"  Total detections: {sum(self.class_counts.values())}")

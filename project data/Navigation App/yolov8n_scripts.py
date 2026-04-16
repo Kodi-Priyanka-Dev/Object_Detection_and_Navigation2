@@ -9,6 +9,40 @@ import numpy as np
 from pathlib import Path
 from collections import defaultdict
 
+# ============================================================================
+# CLASS FILTERING FOR PRETRAINED YOLOv8n (COCO)
+# ============================================================================
+
+# Keep explicit category filters so pretrained model output matches app behavior.
+ELECTRONICS_CLASSES = [
+    'tv',
+    'laptop',
+    'mouse',
+    'remote',
+    'keyboard',
+    'cell phone',
+]
+
+FURNITURE_CLASSES = [
+    'chair',
+    'couch',
+    'bed',
+    'dining table',
+]
+
+# Removed classes from filtering (by request):
+# electronics: microwave, oven, toaster, refrigerator, hair drier
+# furniture: toilet, sink
+
+FILTERED_CLASSES = ELECTRONICS_CLASSES + FURNITURE_CLASSES + ['person']
+
+
+def get_display_label(cls_name):
+    """Normalize class name for user-facing text/UI."""
+    if cls_name == 'dining table':
+        return 'Table'
+    return cls_name
+
 
 # ============================================================================
 # SCRIPT 1: Basic Image Detection
@@ -33,8 +67,10 @@ def detect_objects_in_image(image_path, output_path='result.jpg', conf=0.5):
         print(f"\nDetected objects:")
         for box in result.boxes:
             cls_name = result.names[int(box.cls[0])]
+            if cls_name not in FILTERED_CLASSES:
+                continue
             confidence = box.conf[0].item()
-            print(f"  - {cls_name}: {confidence:.2f}")
+            print(f"  - {get_display_label(cls_name)}: {confidence:.2f}")
         
         # Save annotated image
         result.save(filename=output_path)
@@ -268,7 +304,7 @@ def detect_specific_objects(image_path, target_classes=None, conf=0.5):
     print(list(results[0].names.values()))
     
     if target_classes is None:
-        target_classes = list(results[0].names.values())
+        target_classes = FILTERED_CLASSES
     
     print(f"\nFiltering for: {target_classes}")
     
@@ -277,6 +313,8 @@ def detect_specific_objects(image_path, target_classes=None, conf=0.5):
         
         for box in result.boxes:
             cls_name = result.names[int(box.cls[0])]
+            if cls_name not in FILTERED_CLASSES:
+                continue
             
             if cls_name in target_classes:
                 x1, y1, x2, y2 = box.xyxy[0]
@@ -290,7 +328,7 @@ def detect_specific_objects(image_path, target_classes=None, conf=0.5):
         # Print results
         for cls_name, dets in detections.items():
             if dets:
-                print(f"{cls_name}: {len(dets)} detected")
+                print(f"{get_display_label(cls_name)}: {len(dets)} detected")
                 for i, det in enumerate(dets):
                     print(f"  [{i+1}] Confidence: {det['confidence']:.3f}, "
                           f"Box: {det['bbox']}")

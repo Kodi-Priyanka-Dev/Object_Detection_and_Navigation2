@@ -101,6 +101,7 @@ CLASS_CONSOLIDATION_MAP = {
     "chairs": "chair",           # Plural to singular
     "humans": "human",           # Plural to singular
     "round chair": "chair",      # Consolidate variants to single "chair"
+    "dining table": "table",     # Rename to match frontend "table"
     "glass door": "door",        # Consolidate door variants
     "wooden entrance": "door",   # Consolidate to door
     # Keep singular forms as-is by not mapping them
@@ -127,14 +128,36 @@ OBJECT_WIDTHS = {
     "sofa": 1.5, "couch": 1.5, "table": 1.2,
     "backpack": 0.35, "handbag": 0.3, "suitcase": 0.5, "bottle": 0.08,
 }
-FOCAL_LENGTH = 800
+# General monocular depth (pinhole). Tune with NAV_FOCAL_LENGTH_PX for your camera.
+FOCAL_LENGTH = float(os.getenv("NAV_FOCAL_LENGTH_PX", "800"))
+# Doors use a separate focal default (520) to reduce typical phone overestimation.
+DOOR_FOCAL_LENGTH = float(os.getenv("NAV_DOOR_FOCAL_LENGTH_PX", "520"))
+DOOR_REAL_WIDTH_M = float(os.getenv("NAV_DOOR_WIDTH_M", "0.9"))
+DOOR_REAL_HEIGHT_M = float(os.getenv("NAV_DOOR_HEIGHT_M", "2.0"))
+_DOOR_CLASS_KEYS = frozenset({"door", "glass door", "wooden entrance"})
 
 def estimate_distance(pixel_width, class_name=""):
-    """Estimate distance to object based on pixel width and class"""
-    if pixel_width == 0:
+    """Pinhole model: distance = (real_object_width * focal_length) / pixel_width."""
+    if pixel_width <= 0:
         return 0
-    known_w = OBJECT_WIDTHS.get(class_name.lower(), 0.5)
-    return round((known_w * FOCAL_LENGTH) / pixel_width, 2)
+    known_w = OBJECT_WIDTHS.get((class_name or "").lower().strip(), 0.5)
+    return round((known_w * FOCAL_LENGTH) / float(pixel_width), 2)
+
+def estimate_door_distance(box_width, box_height):
+    """
+    Average of width- and height-based pinhole estimates so a narrow bbox width
+    does not inflate distance as much. Uses DOOR_FOCAL_LENGTH and real door size envs.
+    """
+    estimates = []
+    if box_width > 0:
+        estimates.append((DOOR_REAL_WIDTH_M * DOOR_FOCAL_LENGTH) / float(box_width))
+    if box_height > 0:
+        estimates.append((DOOR_REAL_HEIGHT_M * DOOR_FOCAL_LENGTH) / float(box_height))
+    if not estimates:
+        return 0.0
+    d = sum(estimates) / len(estimates)
+    d = max(0.3, min(d, 80.0))
+    return round(d, 2)
 
 # ─── EDGE DETECTION FUNCTIONS ───
 def detect_edges_sobel(frame, kernel_size=3):
@@ -345,9 +368,8 @@ def generate_visualization_frames():
                     # Draw arrow
                     cv2.arrowedLine(frame, (user_x, user_y), (cx, cy), (0, 0, 255), 4, tipLength=0.1)
                     
-                    # Calculate distance
-                    door_pixel_width = obj_w
-                    actual_distance = (0.9 * 800) / door_pixel_width if door_pixel_width > 0 else 0
+                    # Calculate distance (same model as /detect)
+                    actual_distance = estimate_door_distance(obj_w, obj_h)
                     
                     # Draw distance with background
                     distance_text = f"Door: {actual_distance:.2f}m"
@@ -527,9 +549,10 @@ def detect_objects():
             original_name = binfo['name']
             if binfo['name'].lower() in ["door", "glass door", "wooden door", "wooden entrance", "entrance", "wooden entrance door"]:
                 binfo['name'] = "Door"  # Normalize all door variants to single name
-            # ─── NORMALIZE PERSON/HUMAN NAMES ───
-            elif binfo['name'].lower() in ["person", "human", "humans"]:  # Consolidated: "humans" merged into "human"
-                binfo['name'] = "human"  # Normalize all human variants to single name
+            # ─── NORMALIZE HUMAN NAMES ───
+            # Do NOT normalize generic "person" to "human" (we treat "person" as lower-priority).
+            elif binfo['name'].lower() in ["human", "humans"]:  # Consolidated: "humans" merged into "human"
+                binfo['name'] = "human"  # Normalize all human variants to a single "human"
             
             if original_name != binfo['name']:
                 print(f"   🔄 CONSOLIDATED: '{original_name}' → '{binfo['name']}' (conf={binfo['conf']:.3f})")
@@ -601,6 +624,68 @@ def detect_objects():
         detections = []
         humans = []
         door_detected = False
+
+        # Filter out noisy/unwanted classes before they reach navigation/UI.
+        excluded_classes = {
+            # Electronics (remove)
+            "microwave",
+            "oven",
+            "toaster",
+            "refrigerator",
+            "hair drier",
+            # Furniture (remove)
+            "toilet",
+            "sink",
+            # Unwanted general classes
+            "airplane",
+            # Animals / birds
+            "bird",
+            "cat",
+            "dog",
+            "horse",
+            "sheep",
+            "cow",
+            "elephant",
+            "bear",
+            "zebra",
+            "giraffe",
+            "teddy bear",
+            "skateboard",
+            "cup",
+            # Vehicles (remove all)
+            "bicycle",
+            "car",
+            "motorcycle",
+            "bus",
+            "train",
+            "truck",
+            "boat",
+        }
+
+        def is_full_human_frame(box_width, box_height, x1, y1, x2, y2, frame_w, frame_h):
+            """
+            Heuristic for "full human frame visible":
+            - bbox tall enough
+            - bbox spans from upper-mid to lower-mid of the image
+            - bbox covers a meaningful portion of frame
+            """
+            if box_width <= 0 or box_height <= 0 or frame_w <= 0 or frame_h <= 0:
+                return False
+
+            rel_h = box_height / frame_h
+            rel_w = box_width / frame_w
+            area_ratio = (box_width * box_height) / (frame_w * frame_h)
+            top_ratio = y1 / frame_h
+            bottom_ratio = y2 / frame_h
+
+            return (
+                rel_h >= 0.28
+                and rel_w >= 0.05
+                and rel_w <= 0.45
+                and area_ratio >= 0.03
+                and top_ratio <= 0.55
+                and bottom_ratio >= 0.55
+            )
         
         # ─── FIX 4: DETAILED CONFIDENCE LOGGING & FIX 1: LOWERED THRESHOLDS ───
         for binfo in all_boxes:
@@ -610,6 +695,11 @@ def detect_objects():
             
             # FIX 4: Step 1 - Log raw detection
             print(f"  🔍 [YOLOV8N] {cls_name:20} conf={confidence:.3f}", end="")
+
+            # Drop unwanted electronics/furniture classes completely.
+            if cls_lower in excluded_classes:
+                print(" | ❌ EXCLUDED")
+                continue
             
             # FIX 1: IMPROVED thresholds based on consolidated classes
             # Class consolidation removes duplicates and plurals:
@@ -626,6 +716,10 @@ def detect_objects():
             # New: 0.35 allows more human detections while maintaining accuracy
             elif cls_lower == "human":
                 threshold = 0.35  # ✅ IMPROVED: Human detection at 35% confidence (was 0.48)
+
+            # PERSON is lower priority than "human" and requires stricter confidence.
+            elif cls_lower == "person":
+                threshold = 0.45
             
             # TABLE: LOWERED for better furniture detection
             elif cls_lower == "table":
@@ -658,10 +752,22 @@ def detect_objects():
             
             x1, y1, x2, y2 = map(int, binfo['xyxy'])
             box_width = x2 - x1
+            box_height = y2 - y1
             box_center = (x1 + x2) // 2
             box_center_y = (y1 + y2) // 2
+
+            # Only keep "human/person" detections when a full body is visible.
+            if cls_lower in {"human", "person"} and not is_full_human_frame(
+                box_width, box_height, x1, y1, x2, y2, w, h
+            ):
+                print("  ❌ Human/person filtered (bbox not full frame)")
+                continue
             
-            distance_m = estimate_distance(box_width, cls_name)
+            cls_key = cls_lower.strip()
+            if cls_key in _DOOR_CLASS_KEYS:
+                distance_m = estimate_door_distance(box_width, box_height)
+            else:
+                distance_m = estimate_distance(box_width, cls_name)
             
             detection = {
                 "class": cls_name,
@@ -678,19 +784,20 @@ def detect_objects():
                 },
                 "distance": distance_m,
                 "width": box_width,
-                "height": y2 - y1
+                "height": box_height
             }
             
             detections.append(detection)
             print(f"  ✅ ADDED TO DETECTIONS: {cls_name} at distance={distance_m}m, confidence={confidence:.2f}")
             
             # Track humans separately for navigation logic
-            if cls_lower == "human":
+            if cls_lower == "human" or cls_lower == "person":
                 humans.append({
                     "center": box_center,
-                    "distance": distance_m
+                    "distance": distance_m,
+                    "is_person": cls_lower == "person",
                 })
-                print(f"  👤 HUMAN TRACKED for navigation")
+                print(f"  👤 HUMAN TRACKED for navigation (is_person={cls_lower == 'person'})")
             
             # Track doors - check consolidated class name
             if cls_lower == "door":
@@ -712,13 +819,16 @@ def detect_objects():
         # Door detection logic - show popup for any detected door
         if door_detected:
             print(f"  ➡️  Door detected, generating popup...")
-            door_obj = next((d for d in detections if d["class"] in ["Door"]), None)
+            door_obj = next(
+                (d for d in detections if str(d["class"]).lower().strip() == "door"),
+                None,
+            )
             if door_obj:
                 print(f"  ✓ DOOR POPUP CREATED for {door_obj['class']} at {door_obj['distance']}m (conf: {door_obj['confidence']})")
                 navigation["popup"] = {
                     "type": "door",
-                    "message": f"🚪 {door_obj['class']} detected at {door_obj['distance']} meters",
-                    "question": "Do you want to go through this door?",
+                    "message": f"Door is detected at {door_obj['distance']:.1f} meters. Do you want to open and go?",
+                    "question": None,
                     "distance": door_obj['distance'],
                     "confidence": door_obj['confidence'],
                     "position": door_obj["position"],
@@ -729,9 +839,9 @@ def detect_objects():
                 print(f"✓ Door popup triggered: {door_obj['distance']}m away (confidence: {door_obj['confidence']})")
         
         # Human detection and avoidance logic - show popup immediately
-        if humans:
-            # Sort by distance (closest first)
-            humans.sort(key=lambda x: x['distance'])
+        if humans and not door_detected:
+            # Sort by priority first (human > person), then by distance.
+            humans.sort(key=lambda x: (x.get('is_person', False), x['distance']))
             closest_human = humans[0]
             
             offset = closest_human['center'] - center_x

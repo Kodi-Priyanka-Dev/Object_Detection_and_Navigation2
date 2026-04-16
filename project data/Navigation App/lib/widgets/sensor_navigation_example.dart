@@ -126,7 +126,8 @@ class _SensorNavigationExampleState extends State<SensorNavigationExample> {
             bottom: 0,
             child: SensorNavigationHUD(
               targetHeading: _targetHeading,
-              onDirectionChanged: _onDirectionChanged,
+              showGuidance: true,
+              onNavigationStateChanged: _onNavigationStateChanged,
             ),
           ),
 
@@ -148,15 +149,13 @@ class _SensorNavigationExampleState extends State<SensorNavigationExample> {
     );
   }
 
-  // ── Voice Command: Fires ONCE per direction change ──────────────────────────
-  /// Triggers TTS when direction changes (LEFT, RIGHT, FORWARD)
-  /// Uses _lastSpokenKey to ensure we don't repeat the same direction
-  void _onDirectionChanged(NavDirection dir) {
-    final key = dir.name;
-    if (key == _lastSpokenKey || dir == NavDirection.none) return;
+  // ── Voice: event-style (direction change only; home_screen adds heading gates) ─
+  void _onNavigationStateChanged(NavigationState s) {
+    final key = s.direction.name;
+    if (key == _lastSpokenKey || s.direction == NavDirection.none) return;
     _lastSpokenKey = key;
 
-    final msg = switch (dir) {
+    final msg = switch (s.direction) {
       NavDirection.left    => 'Turn left',
       NavDirection.right   => 'Turn right',
       NavDirection.forward => 'Go straight',
@@ -310,7 +309,7 @@ class _SensorNavigationExampleState extends State<SensorNavigationExample> {
 //        CameraPreview(controller),  // Your camera
 //        SensorNavigationHUD(
 //          targetHeading: computedHeadingToDoor,
-//          onDirectionChanged: (dir) => tts.speak(directionLabel(dir)),
+//          onNavigationStateChanged: (s) => tts.speak(directionLabel(s.direction)),
 //        ),
 //      ],
 //    )
@@ -328,11 +327,11 @@ class _SensorNavigationExampleState extends State<SensorNavigationExample> {
 // VOICE COMMANDS
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// The HUD emits NavDirection.left/right/forward to onDirectionChanged()
+// The HUD emits NavigationState updates to onNavigationStateChanged()
 // Use this to trigger TTS:
 //
-//   void _onDirectionChanged(NavDirection dir) {
-//     switch (dir) {
+//   void _onNavigationStateChanged(NavigationState s) {
+//     switch (s.direction) {
 //       case NavDirection.left:
 //         _tts.speak('Turn left');
 //       case NavDirection.right:

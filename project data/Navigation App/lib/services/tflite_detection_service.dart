@@ -18,6 +18,31 @@ class TFLiteDetectionService {
   static const double confThreshold = 0.35;
   static const double nmsThreshold = 0.45;
 
+  /// Pinhole door distance (same model as backend); tune with NAV_DOOR_* env on server.
+  static const double _doorFocalLengthPx = 520.0;
+  static const double _doorRealWidthM = 0.9;
+  static const double _doorRealHeightM = 2.0;
+
+  static bool _isDoorClass(String normalizedLower) {
+    return normalizedLower == 'door' ||
+        normalizedLower == 'glass door' ||
+        normalizedLower == 'wooden entrance';
+  }
+
+  static double _estimateDoorDistanceM(int boxWidth, int boxHeight) {
+    final est = <double>[];
+    if (boxWidth > 0) {
+      est.add((_doorRealWidthM * _doorFocalLengthPx) / boxWidth);
+    }
+    if (boxHeight > 0) {
+      est.add((_doorRealHeightM * _doorFocalLengthPx) / boxHeight);
+    }
+    if (est.isEmpty) return 0.0;
+    var d = est.reduce((a, b) => a + b) / est.length;
+    d = d.clamp(0.3, 80.0);
+    return double.parse(d.toStringAsFixed(2));
+  }
+
   // COCO class names
   static const List<String> cocoNames = [
     'person', 'bicycle', 'car', 'motorcycle', 'airplane',
@@ -335,8 +360,61 @@ class TFLiteDetectionService {
         final x2 = ((x + w / 2) * frameWidth / inputWidth).clamp(0.0, frameWidth);
         final y2 = ((y + h / 2) * frameHeight / inputHeight).clamp(0.0, frameHeight);
 
+        final rawClassName =
+            classId < cocoNames.length ? cocoNames[classId] : 'unknown';
+        final clsLower = rawClassName.toLowerCase().trim();
+
+        // Rename dining table -> table (frontend expects 'table')
+        final normalizedClass =
+            clsLower == 'dining table' ? 'table' : rawClassName;
+        final normalizedLower = normalizedClass.toLowerCase();
+
+        // Exclude noisy/unwanted classes to keep UI clean.
+        const excluded = {
+          // Electronics (remove)
+          'microwave',
+          'oven',
+          'toaster',
+          'refrigerator',
+          'hair drier',
+          // Furniture (remove)
+          'toilet',
+          'sink',
+          // Unwanted general classes
+          'airplane',
+          // Animals / birds (remove all)
+          'bird',
+          'cat',
+          'dog',
+          'horse',
+          'sheep',
+          'cow',
+          'elephant',
+          'bear',
+          'zebra',
+          'giraffe',
+          'teddy bear',
+          'skateboard',
+          'cup',
+          // Vehicles (remove all)
+          'bicycle',
+          'car',
+          'motorcycle',
+          'bus',
+          'train',
+          'truck',
+          'boat',
+        };
+        if (excluded.contains(normalizedLower)) continue;
+
+        final boxW = (x2 - x1).toInt();
+        final boxH = (y2 - y1).toInt();
+        final distanceM = _isDoorClass(normalizedLower)
+            ? _estimateDoorDistanceM(boxW, boxH)
+            : 0.0;
+
         detections.add(Detection(
-          className: classId < cocoNames.length ? cocoNames[classId] : 'unknown',
+          className: normalizedClass,
           confidence: confidence,
           position: Position(
             x: x,
@@ -348,9 +426,9 @@ class TFLiteDetectionService {
             centerX: (x1 + x2) / 2,
             centerY: (y1 + y2) / 2,
           ),
-          distance: 0.0,
-          width: (x2 - x1).toInt(),
-          height: (y2 - y1).toInt(),
+          distance: distanceM,
+          width: boxW,
+          height: boxH,
         ));
       }
     } catch (e) {

@@ -12,22 +12,21 @@ class DoorPopupDialog {
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
           ),
           title: Row(
             children: const [
-              Icon(Icons.door_front_door, color: Colors.blue, size: 28),
-              SizedBox(width: 10),
+              Icon(Icons.door_front_door, color: Colors.blue, size: 22),
+              SizedBox(width: 8),
               Text(
                 'Door Detected',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
               ),
             ],
           ),
           content: Text(
-            'Door detected at ${distance.toStringAsFixed(1)} meters.\n\n'
-            'Do you want to open and go?',
-            style: const TextStyle(fontSize: 16),
+            'Door is detected at ${distance.toStringAsFixed(1)} meters. Do you want to open and go?',
+            style: const TextStyle(fontSize: 13),
           ),
           actionsAlignment: MainAxisAlignment.spaceEvenly,
           actions: [
@@ -35,28 +34,28 @@ class DoorPopupDialog {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.grey,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 25,
-                  vertical: 10,
+                  horizontal: 20,
+                  vertical: 8,
                 ),
               ),
               onPressed: () => Navigator.pop(context, false),
               child: const Text(
                 'NO',
-                style: TextStyle(fontSize: 16),
+                style: TextStyle(fontSize: 14),
               ),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 25,
-                  vertical: 10,
+                  horizontal: 20,
+                  vertical: 8,
                 ),
               ),
               onPressed: () => Navigator.pop(context, true),
               child: const Text(
                 'YES',
-                style: TextStyle(fontSize: 16),
+                style: TextStyle(fontSize: 14),
               ),
             ),
           ],

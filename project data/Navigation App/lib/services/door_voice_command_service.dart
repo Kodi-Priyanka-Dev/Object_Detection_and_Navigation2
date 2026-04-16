@@ -47,7 +47,7 @@ class DoorVoiceCommandService {
     // New door detected → Speak once
     _lastSpokenDoorKey = doorKey;
 
-    final message = _buildVoiceMessage(direction);
+    final message = _buildVoiceMessage(direction, door.distance);
     await _voiceService.speak(
       message,
       'door_$doorKey',
@@ -78,19 +78,9 @@ class DoorVoiceCommandService {
     print('🚪 Door voice session cleared');
   }
 
-  String _buildVoiceMessage(String direction) {
-    switch (direction.toUpperCase()) {
-      case 'LEFT':
-        return 'Door detected. Move left.';
-      case 'RIGHT':
-        return 'Door detected. Move right.';
-      case 'FORWARD':
-        return 'Door ahead. Go forward.';
-      case 'CENTER':
-        return 'Door is centered.';
-      default:
-        return 'Door detected.';
-    }
+  String _buildVoiceMessage(String direction, double distance) {
+    final distanceStr = distance.toStringAsFixed(1);
+    return 'Door is detected at $distanceStr meters. Do you want to open and go?';
   }
 
   String get currentState => _lastSpokenDoorKey ?? 'idle';
