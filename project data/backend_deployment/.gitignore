@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Exclude test/temp documentation files only
+test_*.txt
+test_*.md
+temp_*.txt
+temp_*.md
+debug_*.txt
+debug_*.md
+
+# Keep important documentation (negate the exclusion)
+!README.md
+!DEPLOYMENT_GUIDE.md
+!QUICK_SETUP.md
+!CONTENTS_SUMMARY.md
+
+# Models (keep in repo, but exclude large versions)
+*.pt
+!models/
+models/*.pt
+
+# Docker
+.dockerignore
+Dockerfile
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+.env.local
