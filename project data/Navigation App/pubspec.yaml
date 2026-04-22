@@ -84,6 +84,7 @@ flutter:
   # Add assets for TFLite models
   assets:
     - assets/models/yolov8n.tflite
+    - assets/models/best.tflite
 
   # To add more assets, add them here:
   # assets:
